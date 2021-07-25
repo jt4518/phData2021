@@ -1,0 +1,110 @@
+## Output Views SQL Commands
+//Total number of flights by airline and airport on a monthly basis  
+select * from PHDATA_TOTAL_FLIGHTS_NUM_VIEW;
+
+//On time percentage of each airline for the year 2015 
+select * from PHDATA_ON_TIME_PERCENTAGE;
+
+//Airlines with the largest number of delays 
+select * from PHDATA_LARGEST_NUM_DELAYS_VIEW;
+
+//Airline with the most unique routes 
+select * from PHDATA_UNIQUE_ROUTES_VIEW;
+
+//Cancellation reasons by airport
+select * from PHDATA_CANCELLATION_REASONS;
+
+//Delay reasons by airport
+select * from PHDATA_DELAY_REASONS;
+
+## Create Views SQL Commands
+
+//Total number of flights by airline and airport on a monthly basis 
+CREATE VIEW "USER_JOHN"."PUBLIC".PHDATA_TOTAL_FLIGHTS_NUM_VIEW comment = 'Total number of flights by airline and airport on a monthly basis' AS SELECT AIRLINE, AIRPORT, MONTH, YEAR, ORIGIN_OR_DESTINATION, SUM(Flight) as "FLIGHTS" from
+(select ar.AIRLINE, ap.AIRPORT, f.MONTH, f.YEAR, 'ORIGIN' as ORIGIN_OR_DESTINATION, 1 as Flight from airlines ar, airports ap, flights f where ar.IATA_CODE = f.AIRLINE and ap.IATA_CODE = f.ORIGIN_AIRPORT)
+GROUP BY AIRLINE,AIRPORT,MONTH,YEAR,ORIGIN_OR_DESTINATION
+UNION ALL
+SELECT AIRLINE, AIRPORT, MONTH, YEAR, ORIGIN_OR_DESTINATION, SUM(Flight) as "FLIGHTS" from
+(select ar.AIRLINE, ap.AIRPORT, f.MONTH, f.YEAR, 'DESTINATION' as ORIGIN_OR_DESTINATION, 1 as Flight from airlines ar, airports ap, flights f where ar.IATA_CODE = f.AIRLINE and ap.IATA_CODE = f.DESTINATION_AIRPORT)
+GROUP BY AIRLINE,AIRPORT,MONTH,YEAR,ORIGIN_OR_DESTINATION
+ORDER BY AIRLINE,AIRPORT,MONTH,YEAR,ORIGIN_OR_DESTINATION;
+
+// On time percentage of each airline for the year 2015 
+CREATE VIEW "USER_JOHN"."PUBLIC".phData_On_Time_Percentage comment = 'On time percentage of each airline for the year 2015 ' AS select o.AIRLINE, CAST(o.On_Time AS DECIMAL) / CAST(t.TOTAL AS DECIMAL) On_Time_Percentage_For_2015  from 
+(SELECT DISTINCT AIRLINE, COUNT(AIRLINE) AS On_Time
+FROM (select ar.AIRLINE, f.DEPARTURE_DELAY, f.ARRIVAL_DELAY, f.CANCELLED, f.DIVERTED from airlines ar, flights f where ar.IATA_CODE = f.AIRLINE and f.YEAR ='2015')
+WHERE (DEPARTURE_DELAY <=0 or DEPARTURE_DELAY is NULL) and
+      (ARRIVAL_DELAY <=0 or ARRIVAL_DELAY is NULL) and
+      (CANCELLED = 0) and
+      (DIVERTED = 0)
+GROUP BY AIRLINE) o, 
+(SELECT DISTINCT AIRLINE, COUNT(  AIRLINE ) AS Total
+FROM (select ar.AIRLINE, f.DEPARTURE_DELAY, f.ARRIVAL_DELAY, f.CANCELLED, f.DIVERTED from airlines ar, flights f where ar.IATA_CODE = f.AIRLINE and f.YEAR ='2015')
+GROUP BY AIRLINE) t 
+where o.AIRLINE = t.AIRLINE order by AIRLINE;
+
+//Airline with the most unique routes 
+CREATE VIEW "USER_JOHN"."PUBLIC".PHDATA_UNIQUE_ROUTES_VIEW comment = 'Airline with the most unique routes ' AS select airline, sum(Unique_Route) "Unique Routes"
+from (select distinct ar.airline, 1 as Unique_Route, f.ORIGIN_AIRPORT, f.DESTINATION_AIRPORT from airlines ar, flights f where ar.IATA_CODE = f.AIRLINE) 
+group by airline order by sum(Unique_Route) desc
+LIMIT 1;
+
+//Airlines with the largest number of delays 
+CREATE VIEW "USER_JOHN"."PUBLIC".PHDATA_LARGEST_NUM_DELAYS_VIEW comment = 'Airlines with the largest number of delays ' AS select AIRLINE , sum(air_system_delay) + sum(security_delay) + sum(airline_delay) + sum(late_aircraft_delay) + sum(weather_delay) DELAYS from
+(select ar.AIRLINE, 
+(CASE 
+      WHEN  f.air_system_delay > 0 THEN 1 ELSE 0
+END) as air_system_delay, 
+(CASE 
+      WHEN  f.security_delay > 0 THEN 1 ELSE 0
+END) as security_delay, 
+(CASE 
+      WHEN  f.airline_delay > 0 THEN 1 ELSE 0
+END) as airline_delay, 
+(CASE 
+      WHEN  f.late_aircraft_delay > 0 THEN 1 ELSE 0
+END) as late_aircraft_delay,
+(CASE 
+      WHEN  f.weather_delay > 0 THEN 1 ELSE 0
+END) as weather_delay
+from airlines ar, flights f where ar.iata_code = f.airline and 
+    (not f.air_system_delay is NULL or
+     not f.security_delay is NULL or
+     not f.airline_delay is NULL or
+     not f.late_aircraft_delay is NULL or
+     not f.weather_delay is NULL)) group by AIRLINE order by DELAYS desc;
+
+//Cancellation reasons by airport 
+CREATE VIEW "USER_JOHN"."PUBLIC".phData_Cancellation_Reasons comment = 'Cancellation reasons by airport' AS SELECT AIRPORT,
+       LISTAGG(CANCELLATION_REASON,', ') 
+          WITHIN GROUP(ORDER BY CANCELLATION_REASON) "Cancellation Reasons"
+    FROM (select distinct ap.airport,
+(CASE WHEN f.CANCELLATION_REASON = 'A' THEN 'Airline/Carrier'
+      WHEN f.CANCELLATION_REASON = 'B' THEN 'Weather'
+      WHEN f.CANCELLATION_REASON = 'C' THEN 'National Air System'
+      WHEN f.CANCELLATION_REASON = 'D' THEN 'Security'
+      ELSE NULL
+END) as CANCELLATION_REASON 
+from airports ap, flights f where ap.iata_code = f.origin_airport and not f.CANCELLATION_REASON is NULL)
+  GROUP BY AIRPORT
+  order by airport;
+   
+//Delay reasons by airport 
+CREATE VIEW "USER_JOHN"."PUBLIC".phData_Delay_Reasons comment = 'Delay reasons by airport' AS select airport, CONCAT(air_system_delay,security_delay,airline_delay,late_aircraft_delay,weather_delay) as "Delay Reasons" from
+(select ap.airport, 
+       (CASE WHEN sum(f.air_system_delay) > 0 THEN 'Air_system,' ELSE '' END) as air_system_delay,
+       (CASE WHEN sum(f.security_delay) > 0 THEN ' Security,' ELSE '' END) as security_delay,
+       (CASE WHEN sum(f.airline_delay) > 0 THEN ' Airline,' ELSE '' END) as airline_delay,
+       (CASE WHEN sum(f.late_aircraft_delay) > 0 THEN ' Late_aircraft,' ELSE '' END) as late_aircraft_delay,
+       (CASE WHEN sum(f.weather_delay) > 0 THEN ' Weather' ELSE '' END) as weather_delay       
+from airports ap, flights f where ap.iata_code = f.origin_airport and 
+    (not f.air_system_delay is NULL or
+     not f.security_delay is NULL or
+     not f.airline_delay is NULL or
+     not f.late_aircraft_delay is NULL or
+     not f.weather_delay is NULL)
+group by ap.airport)
+order by airport;
+
+
+    
